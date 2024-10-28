@@ -1,19 +1,17 @@
 "use strict";
 
 
-import {getDocument, GlobalWorkerOptions, PDFWorker } from "/static/libs/pdf/pdf.js";
-GlobalWorkerOptions.workerSrc = "/static/libs/pdf/pdf.worker.js";
-
 const CPU_CORES = navigator.hardwareConcurrency;
 const STORED_CPU_CORES = localStorage.getItem("cores");
 let SELECTED_CPU_CORES;
 if (STORED_CPU_CORES) SELECTED_CPU_CORES = Number(STORED_CPU_CORES);
 else SELECTED_CPU_CORES = CPU_CORES;
 
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/static/libs/pdf/pdf.worker.js";
 const pdfjs_workers = new Array(SELECTED_CPU_CORES);
 const my_workers = new Array(SELECTED_CPU_CORES);
 for (let i = 0; i < SELECTED_CPU_CORES; i++) {
-    pdfjs_workers[i] = new PDFWorker();
+    pdfjs_workers[i] = new pdfjsLib.PDFWorker();
     my_workers[i] = new Worker("/static/scripts/worker.js");
 }
 let workers_num = SELECTED_CPU_CORES;
@@ -29,10 +27,46 @@ const formats = ['A4', 'A3', 'A2', 'A1', 'A0', 'НЕФОР'];
 const pdf_error_messages = ["Invalid PDF structure.", "The PDF file is empty, i.e. its size is zero bytes."]
 
 const [RESULT] = document.getElementsByClassName('result');
-const ERROR = document.getElementById("error");
+const ERROR1 = document.getElementById("error1");
+const ERROR2 = document.getElementById("error2");
 const [BODY] = document.getElementsByTagName('body');
+const SEND_MESSAGE_CONTAINER = document.getElementById('send-ip');
+const SEND_MESSAGE_INPUT = document.getElementById('tmp-franchise-inp');
+const SEND_MESSAGE_BUTTON = document.getElementById('tmp-franchise-btn');
+const SEND_WRAPPERS = document.querySelectorAll('.send-wrapper');
 const PDF_POPUP = document.getElementById('pdf-popup');
 const PDF_BUTTON = document.getElementById('info-pdf');
+const CPUINPUT = document.getElementById('cores-selector');
+const INFO_BUTTON = document.getElementById('info-cpu');
+const SPAN1 = document.getElementById('span1');
+const INFO_POPUP = document.getElementById('info-popup');
+
+CPUINPUT.max = CPU_CORES;
+CPUINPUT.value = String(SELECTED_CPU_CORES);
+SPAN1.textContent = 'Потоков обработки: ' + SELECTED_CPU_CORES;
+
+SEND_MESSAGE_BUTTON.addEventListener('click', function() {
+    const input_code = SEND_MESSAGE_INPUT.value;
+    SEND_WRAPPERS.forEach(function(element) {
+        element.remove();
+    });
+    ERROR2.innerText = 'Отправка...'
+    const form = new FormData();
+    form.append("key", input_code);
+    fetch("/api/specialkey/", {
+        method: 'POST',
+        body: form
+    }).then(function(response) {
+        if (response.status === 202) {
+            ERROR2.style.color = '#008000';
+            ERROR2.innerText = 'Успешно';
+        }
+        else {
+            ERROR2.innerText = "Ошибка запроса к серверу: " + response.status;
+        }
+    });
+});
+
 
 PDF_BUTTON.addEventListener('mouseover', function() {
     PDF_POPUP.style.display = 'block'; // Показать popup
@@ -57,6 +91,7 @@ function generate_cpu_scroll() {
     const INFO_CONTAINER = document.createElement('div');
     INFO_CONTAINER.className = 'info-container';
     const SPAN1 = document.createElement('span');
+    SPAN1.id = 'span1';
     SPAN1.textContent = 'Потоков обработки: ' + SELECTED_CPU_CORES;
     INFO_CONTAINER.appendChild(SPAN1);
     const INFO_BUTTON = document.createElement('button');
@@ -79,14 +114,20 @@ function generate_cpu_scroll() {
     CONT.appendChild(SCROLLBAR);
     const INFO_POPUP = document.createElement('div');
     INFO_POPUP.className = 'popup';
+    INFO_POPUP.id = 'info-popup';
     INFO_POPUP.style.display = 'none'; // По умолчанию скрыто
     const SPAN2 = document.createElement('span');
     SPAN2.textContent = 'Сильно ускоряет подсчёт, но повышает нагрузку на ЦП и требует больше ОЗУ';
     INFO_POPUP.appendChild(SPAN2);
     CONT.appendChild(INFO_POPUP);
     RESULT.appendChild(CONT);
+    addEventListenersCpuSelectors(CPUINPUT, INFO_BUTTON, SPAN1, INFO_POPUP);
+}
 
+
+function addEventListenersCpuSelectors(CPUINPUT, INFO_BUTTON, SPAN1, INFO_POPUP) {
     CPUINPUT.addEventListener("input", function() {
+        console.log(this.value);
         let value = parseInt(this.value);
         SPAN1.textContent = 'Потоков обработки: ' + value;
     });
@@ -96,7 +137,7 @@ function generate_cpu_scroll() {
         SELECTED_CPU_CORES = value;
         if (value > workers_num) {
            for (let i = 0; i < value - workers_num; i++) {
-            pdfjs_workers[i] = new PDFWorker();
+            pdfjs_workers[i] = new pdfjsLib.PDFWorker();
             my_workers[i] = new Worker("/static/scripts/worker.js");
             }
             workers_num = value;
@@ -121,7 +162,7 @@ function generate_cpu_scroll() {
     });
 }
 
-generate_cpu_scroll();
+addEventListenersCpuSelectors(CPUINPUT, INFO_BUTTON, SPAN1, INFO_POPUP);
 
 pdfInput.addEventListener("change", async function() {
     const files = this.files;
@@ -159,7 +200,7 @@ BODY.addEventListener("drop", function(e) {
 
 
 window.onload = function() {
-    ERROR.innerText = "";
+    ERROR1.innerText = "";
 };
 
 
@@ -246,7 +287,7 @@ function start_loading() {
     LOADING_TIPS.setAttribute('class', 'loading-tips');
     RESULT.appendChild(PROGRESS_BAR_CONTAINER);
     RESULT.appendChild(LOADING_TIPS);
-    return {PROGRESS_BAR, LOADING_TIPS}; 
+    return {PROGRESS_BAR, LOADING_TIPS};
 }
 
 
@@ -257,24 +298,24 @@ async function fileHandler(files) {
         if (response.ok) {
             const text = await response.text();
             if (text === "Not authenticated") {
-                ERROR.innerText = "Вы не авторизованы. Пожалуйста, войдите в аккаунт.";
+                ERROR1.innerText = "Вы не авторизованы. Пожалуйста, войдите в аккаунт.";
                 return false;
             }
             else if (text === "PC limit") {
-                ERROR.innerText = "К сожалению, достигнут лимит активных ПК.";
+                ERROR1.innerText = "К сожалению, достигнут лимит активных ПК.";
                 return false;
             }
             else if (text === "Sub is expired") {
-                ERROR.innerText = "Подписка не активирована.";
+                ERROR1.innerText = "Подписка не активирована.";
                 return false;
             }
             else if (text === "PC limit") {
-                ERROR.innerText = "К сожалению, достигнут лимит активных ПК.";
+                ERROR1.innerText = "К сожалению, достигнут лимит активных ПК.";
                 return false;
             }
         }
         else {
-            ERROR.innerText = "Ошибка запроса к серверу: " + response.status;
+            ERROR1.innerText = "Ошибка запроса к серверу: " + response.status;
             return false;
         }
     }
@@ -282,9 +323,9 @@ async function fileHandler(files) {
     let pdf_files_ind = new Array();
     const skiped = new Array(SELECTED_CPU_CORES);
     for (let thread_ind = 0; thread_ind < SELECTED_CPU_CORES; thread_ind++) skiped[thread_ind] = new Array();
-    for (let file_ind = 0; file_ind < files.length; file_ind++) {
+     for (let file_ind = 0; file_ind < files.length; file_ind++) {
         if (files[file_ind]) {
-            if (files[file_ind].type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || 
+            if (files[file_ind].type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
                 files[file_ind].type === "application/msword") {
                 const promis_ind = skiped[0].length;
                 const promise = (fetch("/api/docxToPdf/", {
@@ -295,21 +336,20 @@ async function fileHandler(files) {
                 }));
                 for (let thread_ind = 0; thread_ind < SELECTED_CPU_CORES; thread_ind++) skiped[thread_ind].push(promise);
             }
-            else if (files[file_ind].type === "application/pdf") pdf_files_ind.push(file_ind);
             else {
-                ERROR.innerText = "Пожалуйста, выберите PDF/DOC/DOCX файл >:(";
+                ERROR1.innerText = "Пожалуйста, выберите PDF/DOC/DOCX файл >:(";
                 return false;
             }
         }
         else {
-            ERROR.innerText = "Пожалуйста, выберите PDF/DOC/DOCX файл >:(";
+            ERROR1.innerText = "Пожалуйста, выберите PDF/DOC/DOCX файл >:(";
             return false;
         }
     }
-    ERROR.innerText = "";
+    ERROR1.innerText = "";
     let errors_set = new Set();
     const {PROGRESS_BAR, LOADING_TIPS} = start_loading();
- 
+
     // init output pdf info
     let page_types = new Array(6); // 0 - A4, 1 - A3, 2 - A2, 3 - A1, 4 - A0, 5 - not format
     for (let i = 0; i < 6; i++) page_types[i] = new Array(3).fill(0); // 0 - grayscale, 1 - color (stage 1), 2 - color (stage 2)
@@ -327,11 +367,11 @@ async function fileHandler(files) {
     for (let file_ind = 0; file_ind < files.length; file_ind++) {
         page_black_list[file_ind] = new Array();
     }
+
     const pages_count = new Array(files.length);
     let parsed_files_num = 0;
 
-
-    async function start(doc, worker, resolve, file_ind) {
+     async function start(doc, worker, resolve, file_ind) {
         const render_page_ind = pages_count[file_ind]--;
         if (render_page_ind < 0) {
             doc.destroy();
@@ -440,7 +480,7 @@ async function fileHandler(files) {
             worker.postMessage({image_width, image_height, pixels_data}, [pixels_data.buffer]);
         }
     }
-    
+
 
     const converted_files = new Array(files.length);
     const thead_promises = new Array(SELECTED_CPU_CORES);
@@ -450,8 +490,7 @@ async function fileHandler(files) {
                 if (pages_count[pdf_files_ind[i]] === undefined) {
                     await new Promise(function(start_resolve) {
                         pages_count[pdf_files_ind[i]] = new Promise(async function(count_resolve) {
-                            const doc = await getDocument({ data: await files[pdf_files_ind[i]].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise;
-                            pages_count[pdf_files_ind[i]] = doc.numPages - 1;
+                            const doc = await pdfjsLib.getDocument({ data: await files[pdf_files_ind[i]].arrayBuffer(), worker: pdfjs_workers[thread_ind] }).promise;                            pages_count[pdf_files_ind[i]] = doc.numPages - 1;
                             count_resolve();
                             start(doc, my_workers[thread_ind], start_resolve, pdf_files_ind[i]);
                         });
@@ -459,8 +498,7 @@ async function fileHandler(files) {
                 }
                 else if (typeof pages_count[pdf_files_ind[i]] === "number") {
                     if (pages_count[pdf_files_ind[i]] >= 0) {
-                        await getDocument({ data: await files[pdf_files_ind[i]].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise.then(async function(doc) {
-                            await new Promise(function(start_resolve) {
+                            await pdfjsLib.getDocument({ data: await files[pdf_files_ind[i]].arrayBuffer(), worker: pdfjs_workers[thread_ind] }).promise.then(async function(doc) {                            await new Promise(function(start_resolve) {
                                 start(doc, my_workers[thread_ind], start_resolve, pdf_files_ind[i]);
                             });
                         });
@@ -480,8 +518,7 @@ async function fileHandler(files) {
                         await new Promise(function(start_resolve) {
                             pages_count[i.file_ind] = new Promise(async function(count_resolve) {
                                 converted_files[i.file_ind] = await i.response.blob();
-                                const doc = await getDocument({ data: await converted_files[i.file_ind].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise;
-                                pages_count[i.file_ind] = doc.numPages - 1;
+                                const doc = await pdfjsLib.getDocument({ data: await converted_files[i.file_ind].arrayBuffer(), worker: pdfjs_workers[thread_ind] }).promise;                                pages_count[i.file_ind] = doc.numPages - 1;
                                 count_resolve();
                                 start(doc, my_workers[thread_ind], start_resolve, i.file_ind);
                             });
@@ -490,8 +527,7 @@ async function fileHandler(files) {
                     else if (typeof pages_count[i.file_ind] === "number") {
                         skiped[thread_ind].splice(i.promis_ind - deleted++, 1);
                         if (pages_count[i.file_ind] >= 0) {
-                            await getDocument({ data: await converted_files[i.file_ind].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise.then(async function(doc) {
-                                await new Promise(function(start_resolve) {
+                            await pdfjsLib.getDocument({ data: await converted_files[i.file_ind].arrayBuffer(), worker: pdfjs_workers[thread_ind] }).promise.then(async function(doc) {                                await new Promise(function(start_resolve) {
                                     start(doc, my_workers[thread_ind], start_resolve, i.file_ind);
                                 });
                             });
@@ -506,8 +542,7 @@ async function fileHandler(files) {
                 else if (i.promis_ind !== undefined) {
                     skiped[thread_ind].splice(i.promis_ind - deleted++, 1);
                     if (pages_count[i.file_ind] >= 0) {
-                        await getDocument({ data: await converted_files[i.file_ind].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise.then(async function(doc) {
-                            await new Promise(function(start_resolve) {
+                        await pdfjsLib.getDocument({ data: await converted_files[i.file_ind].arrayBuffer(), worker: pdfjs_workers[thread_ind] }).promise.then(async function(doc) {                            await new Promise(function(start_resolve) {
                                 start(doc, my_workers[thread_ind], start_resolve, i.file_ind);
                             });
                         });
@@ -516,8 +551,7 @@ async function fileHandler(files) {
                 else {
                     skiped[thread_ind].splice(i - deleted++, 1);
                     if (pages_count[pdf_files_ind[i]] >= 0) {
-                        await getDocument({ data: await files[pdf_files_ind[i]].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise.then(async function(doc) {
-                            await new Promise(function(start_resolve) {
+                        await pdfjsLib.getDocument({ data: await files[pdf_files_ind[i]].arrayBuffer(), worker: pdfjs_workers[thread_ind] }).promise.then(async function(doc) {                            await new Promise(function(start_resolve) {
                                 start(doc, my_workers[thread_ind], start_resolve, pdf_files_ind[i]);
                             });
                         });
@@ -528,7 +562,6 @@ async function fileHandler(files) {
         });
     }
     await Promise.all(thead_promises);
-
 
     // clear loading
     document.getElementsByClassName('tower')[0].remove();
@@ -682,7 +715,7 @@ async function fileHandler(files) {
             if (cur_num) {
                 let price;
                 if (j < 2) {
-                    const cur_nums = [6, 11, 21, 51, 101, 301, cur_num + 1];
+                    const cur_nums = [6, 11, 21, 51, 101, 301, cur_type_pages + 1];
                     for (let num = 0; num < 7; num++) {
                         if (cur_type_pages < cur_nums[num]){
                             price = PRICES[j][i][num];
@@ -691,7 +724,7 @@ async function fileHandler(files) {
                     }
                 }
                 else if (i === 0) {
-                    const cur_nums = [2, 6, 11, 21, 51, cur_num + 1];
+                    const cur_nums = [2, 6, 11, 21, 51, cur_type_pages + 1];
                     for (let num = 0; num < 6; num++) {
                         if (cur_type_pages < cur_nums[num]){
                             price = PRICES[j][i][num];
@@ -700,7 +733,7 @@ async function fileHandler(files) {
                     }
                 }
                 else {
-                    const cur_nums = [2, 6, 11, 21, 51, 101, cur_num + 1];
+                    const cur_nums = [2, 6, 11, 21, 51, 101, cur_type_pages + 1];
                     for (let num = 0; num < 7; num++) {
                         if (cur_type_pages < cur_nums[num]){
                             price = PRICES[j][i][num];
@@ -836,7 +869,7 @@ async function fileHandler(files) {
         RESULT.appendChild(BLACK_LIST_TABLE);
     }
     errors_set.forEach(function(error) {
-        ERROR.innerText += ` ${error} `;
+        ERROR1.innerText += ` ${error} `;
     });
 
     generate_cpu_scroll();
