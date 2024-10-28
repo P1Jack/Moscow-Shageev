@@ -1,17 +1,19 @@
 "use strict";
 
 
+import {getDocument, GlobalWorkerOptions, PDFWorker } from "/static/libs/pdf/pdf.js";
+GlobalWorkerOptions.workerSrc = "/static/libs/pdf/pdf.worker.js";
+
 const CPU_CORES = navigator.hardwareConcurrency;
 const STORED_CPU_CORES = localStorage.getItem("cores");
 let SELECTED_CPU_CORES;
-if (STORED_CPU_CORES) SELECTED_CPU_CORES = STORED_CPU_CORES;
+if (STORED_CPU_CORES) SELECTED_CPU_CORES = Number(STORED_CPU_CORES);
 else SELECTED_CPU_CORES = CPU_CORES;
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "/static/libs/pdf/pdf.worker.js";
 const pdfjs_workers = new Array(SELECTED_CPU_CORES);
 const my_workers = new Array(SELECTED_CPU_CORES);
 for (let i = 0; i < SELECTED_CPU_CORES; i++) {
-    pdfjs_workers[i] = new pdfjsLib.PDFWorker();
+    pdfjs_workers[i] = new PDFWorker();
     my_workers[i] = new Worker("/static/scripts/worker.js");
 }
 let workers_num = SELECTED_CPU_CORES;
@@ -27,46 +29,10 @@ const formats = ['A4', 'A3', 'A2', 'A1', 'A0', 'НЕФОР'];
 const pdf_error_messages = ["Invalid PDF structure.", "The PDF file is empty, i.e. its size is zero bytes."]
 
 const [RESULT] = document.getElementsByClassName('result');
-const ERROR1 = document.getElementById("error1");
-const ERROR2 = document.getElementById("error2");
+const ERROR = document.getElementById("error");
 const [BODY] = document.getElementsByTagName('body');
-const SEND_MESSAGE_CONTAINER = document.getElementById('send-ip');
-const SEND_MESSAGE_INPUT = document.getElementById('tmp-franchise-inp');
-const SEND_MESSAGE_BUTTON = document.getElementById('tmp-franchise-btn');
-const SEND_WRAPPERS = document.querySelectorAll('.send-wrapper');
 const PDF_POPUP = document.getElementById('pdf-popup');
 const PDF_BUTTON = document.getElementById('info-pdf');
-const CPUINPUT = document.getElementById('cores-selector');
-const INFO_BUTTON = document.getElementById('info-cpu');
-const SPAN1 = document.getElementById('span1');
-const INFO_POPUP = document.getElementById('info-popup');
-
-CPUINPUT.max = CPU_CORES;
-CPUINPUT.value = String(SELECTED_CPU_CORES);
-SPAN1.textContent = 'Потоков обработки: ' + SELECTED_CPU_CORES;
-
-SEND_MESSAGE_BUTTON.addEventListener('click', function() {
-    const input_code = SEND_MESSAGE_INPUT.value;
-    SEND_WRAPPERS.forEach(function(element) {
-        element.remove();
-    });
-    ERROR2.innerText = 'Отправка...'
-    const form = new FormData();
-    form.append("key", input_code);
-    fetch("/api/specialkey/", {
-        method: 'POST',
-        body: form
-    }).then(function(response) {
-        if (response.status === 202) {
-            ERROR2.style.color = '#008000';
-            ERROR2.innerText = 'Успешно';
-        }
-        else {
-            ERROR2.innerText = "Ошибка запроса к серверу: " + response.status;
-        }
-    });
-});
-
 
 PDF_BUTTON.addEventListener('mouseover', function() {
     PDF_POPUP.style.display = 'block'; // Показать popup
@@ -91,7 +57,6 @@ function generate_cpu_scroll() {
     const INFO_CONTAINER = document.createElement('div');
     INFO_CONTAINER.className = 'info-container';
     const SPAN1 = document.createElement('span');
-    SPAN1.id = 'span1';
     SPAN1.textContent = 'Потоков обработки: ' + SELECTED_CPU_CORES;
     INFO_CONTAINER.appendChild(SPAN1);
     const INFO_BUTTON = document.createElement('button');
@@ -114,20 +79,14 @@ function generate_cpu_scroll() {
     CONT.appendChild(SCROLLBAR);
     const INFO_POPUP = document.createElement('div');
     INFO_POPUP.className = 'popup';
-    INFO_POPUP.id = 'info-popup';
     INFO_POPUP.style.display = 'none'; // По умолчанию скрыто
     const SPAN2 = document.createElement('span');
     SPAN2.textContent = 'Сильно ускоряет подсчёт, но повышает нагрузку на ЦП и требует больше ОЗУ';
     INFO_POPUP.appendChild(SPAN2);
     CONT.appendChild(INFO_POPUP);
     RESULT.appendChild(CONT);
-    addEventListenersCpuSelectors(CPUINPUT, INFO_BUTTON, SPAN1, INFO_POPUP);
-}
 
-
-function addEventListenersCpuSelectors(CPUINPUT, INFO_BUTTON, SPAN1, INFO_POPUP) {
     CPUINPUT.addEventListener("input", function() {
-        console.log(this.value);
         let value = parseInt(this.value);
         SPAN1.textContent = 'Потоков обработки: ' + value;
     });
@@ -137,7 +96,7 @@ function addEventListenersCpuSelectors(CPUINPUT, INFO_BUTTON, SPAN1, INFO_POPUP)
         SELECTED_CPU_CORES = value;
         if (value > workers_num) {
            for (let i = 0; i < value - workers_num; i++) {
-            pdfjs_workers[i] = new pdfjsLib.PDFWorker();
+            pdfjs_workers[i] = new PDFWorker();
             my_workers[i] = new Worker("/static/scripts/worker.js");
             }
             workers_num = value;
@@ -162,7 +121,7 @@ function addEventListenersCpuSelectors(CPUINPUT, INFO_BUTTON, SPAN1, INFO_POPUP)
     });
 }
 
-addEventListenersCpuSelectors(CPUINPUT, INFO_BUTTON, SPAN1, INFO_POPUP);
+generate_cpu_scroll();
 
 pdfInput.addEventListener("change", async function() {
     const files = this.files;
@@ -200,7 +159,7 @@ BODY.addEventListener("drop", function(e) {
 
 
 window.onload = function() {
-    ERROR1.innerText = "";
+    ERROR.innerText = "";
 };
 
 
@@ -287,6 +246,7 @@ function start_loading() {
     LOADING_TIPS.setAttribute('class', 'loading-tips');
     RESULT.appendChild(PROGRESS_BAR_CONTAINER);
     RESULT.appendChild(LOADING_TIPS);
+    return {PROGRESS_BAR, LOADING_TIPS}; 
 }
 
 
@@ -297,63 +257,59 @@ async function fileHandler(files) {
         if (response.ok) {
             const text = await response.text();
             if (text === "Not authenticated") {
-                ERROR1.innerText = "Вы не авторизованы. Пожалуйста, войдите в аккаунт.";
+                ERROR.innerText = "Вы не авторизованы. Пожалуйста, войдите в аккаунт.";
                 return false;
             }
             else if (text === "PC limit") {
-                ERROR1.innerText = "К сожалению, достигнут лимит активных ПК.";
+                ERROR.innerText = "К сожалению, достигнут лимит активных ПК.";
                 return false;
             }
             else if (text === "Sub is expired") {
-                ERROR1.innerText = "Подписка не активирована.";
+                ERROR.innerText = "Подписка не активирована.";
                 return false;
             }
             else if (text === "PC limit") {
-                ERROR1.innerText = "К сожалению, достигнут лимит активных ПК.";
+                ERROR.innerText = "К сожалению, достигнут лимит активных ПК.";
                 return false;
             }
         }
         else {
-            ERROR1.innerText = "Ошибка запроса к серверу: " + response.status;
+            ERROR.innerText = "Ошибка запроса к серверу: " + response.status;
             return false;
         }
     }
     // validating file
-    let docx_promises = new Array(files.length);
-    let docx_count = 0;
     let pdf_files_ind = new Array();
-    if (files.length === 0) return false;
+    const skiped = new Array(SELECTED_CPU_CORES);
+    for (let thread_ind = 0; thread_ind < SELECTED_CPU_CORES; thread_ind++) skiped[thread_ind] = new Array();
     for (let file_ind = 0; file_ind < files.length; file_ind++) {
         if (files[file_ind]) {
-            const file_type = files[file_ind].name.split(".").pop().toLowerCase();
-            if (file_type === "doc" || file_type === "docx") {
-                docx_promises[file_ind] = (fetch("/api/docxToPdf/", {
+            if (files[file_ind].type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || 
+                files[file_ind].type === "application/msword") {
+                const promis_ind = skiped[0].length;
+                const promise = (fetch("/api/docxToPdf/", {
                     method: 'POST',
                     body: files[file_ind]
                 }).then(function(response) {
-                    return {response, file_ind}
+                    return {response, file_ind, promis_ind}
                 }));
-                docx_count++;
+                for (let thread_ind = 0; thread_ind < SELECTED_CPU_CORES; thread_ind++) skiped[thread_ind].push(promise);
             }
-            else if (file_type === "pdf") {
-                docx_promises[file_ind] = new Promise(function() {});
-                pdf_files_ind.push(file_ind);
-            }
+            else if (files[file_ind].type === "application/pdf") pdf_files_ind.push(file_ind);
             else {
-                ERROR1.innerText = "Пожалуйста, выберите PDF/DOC/DOCX файл >:(";
+                ERROR.innerText = "Пожалуйста, выберите PDF/DOC/DOCX файл >:(";
                 return false;
             }
         }
         else {
-            ERROR1.innerText = "Пожалуйста, выберите PDF/DOC/DOCX файл >:(";
+            ERROR.innerText = "Пожалуйста, выберите PDF/DOC/DOCX файл >:(";
             return false;
         }
     }
-    ERROR1.innerText = "";
+    ERROR.innerText = "";
     let errors_set = new Set();
-    start_loading();
-    let parsed_files_num = 0;
-
+    const {PROGRESS_BAR, LOADING_TIPS} = start_loading();
+ 
     // init output pdf info
     let page_types = new Array(6); // 0 - A4, 1 - A3, 2 - A2, 3 - A1, 4 - A0, 5 - not format
     for (let i = 0; i < 6; i++) page_types[i] = new Array(3).fill(0); // 0 - grayscale, 1 - color (stage 1), 2 - color (stage 2)
@@ -371,192 +327,207 @@ async function fileHandler(files) {
     for (let file_ind = 0; file_ind < files.length; file_ind++) {
         page_black_list[file_ind] = new Array();
     }
+    const pages_count = new Array(files.length);
+    let parsed_files_num = 0;
 
-    async function parsePdf(file_data, file_ind) {
-        const [PROGRESS_BAR] = document.getElementsByClassName('progress-bar');
-        const [LOADING_TIPS] = document.getElementsByClassName('loading-tips');
-        LOADING_TIPS.innerText = `${files[file_ind].name} ${++parsed_files_num}/${files.length}`
 
-        let page_ind = 0;
-        let pages_count;
-        const pdfs = new Array();
-        file_data = new Uint8Array(file_data);
-        if (SELECTED_CPU_CORES > 1) {
-            {
-                const copy_file_data = new Uint8Array(new ArrayBuffer(file_data.length))
-                copy_file_data.set(file_data);
-                const doc = await pdfjsLib.getDocument({ data: copy_file_data, worker: pdfjs_workers[0] }).promise;
-                pages_count = doc.numPages;
-                pdfs.push(new Promise(function(resolve) {
-                    start(doc, my_workers[0], resolve);
-                }));
-            }
-            const need_threads = Math.min(SELECTED_CPU_CORES, pages_count);
-            if (need_threads > 1) {
-                for (let i = 2; i < need_threads; i++){
-                    const copy_file_data = new Uint8Array(new ArrayBuffer(file_data.length))
-                    copy_file_data.set(file_data);
-                    pdfs.push(pdfjsLib.getDocument({ data: copy_file_data, worker: pdfjs_workers[i] }).promise.then(async function(doc) {
-                        await new Promise(function(resolve) {
-                            start(doc, my_workers[i], resolve);
-                        });
-                    }));
-                }
-                pdfs.push(pdfjsLib.getDocument({ data: file_data, worker: pdfjs_workers[1] }).promise.then(async function(doc) {
-                    await new Promise(function(resolve) {
-                        start(doc, my_workers[1], resolve);
-                    });
-                }));
-            }
+    async function start(doc, worker, resolve, file_ind) {
+        const render_page_ind = pages_count[file_ind]--;
+        if (render_page_ind < 0) {
+            doc.destroy();
+            resolve();
+            return;
+        }
+
+        const page = await doc.getPage(render_page_ind + 1);
+
+        // get page size
+        const page_rect = page.view;
+        let format_width = (page_rect[2] - page_rect[0]) * 0.3527722110322778;
+        let format_height = (page_rect[3] - page_rect[1]) * 0.3527722110322778;
+        if (format_width > format_height) {
+            const tmp = format_height;
+            format_height = format_width;
+            format_width = tmp;
+        }
+
+        if (format_width > 910) {
+            page_black_list[file_ind].push(render_page_ind);
+            page.myCleanup();
+            start(doc, worker, resolve, file_ind);
         }
         else {
-            pdfs.push(pdfjsLib.getDocument({ data: file_data, worker: pdfjs_workers[0] }).promise.then(async function(doc) {
-                pages_count = doc.numPages;
-                await new Promise(function(resolve) {
-                    start(doc, my_workers[0], resolve);
-                });
-            }));
-        }
-        await Promise.all(pdfs);
+            // transform page to image
+            const viewport = page.getViewport({scale: 0.5});
+            const image_width = Math.floor(viewport.width);
+            const image_height = Math.floor(viewport.height);
+            const ctx = new OffscreenCanvas(image_width, image_height).getContext("2d");
+            const render = page.render({canvasContext: ctx, viewport: viewport}).promise;
+            // save image if need it
+            // canvas.toBlob(function (blob) {
+            //     const link = document.createElement("a");
+            //     link.download = "page-" + page_ind + ".bmp";
+            //     link.href = URL.createObjectURL(blob);
+            //     link.click();
+            // }, "image/bmp");
 
-        async function start(doc, worker, resolve) {
-            const render_page_ind = page_ind++;
-            if (render_page_ind >= pages_count) {
-                doc.destroy();
-                resolve();
-                return;
-            }
+            // get page format from size
+            let format;
+            format_width -= LIMIT;
+            format_height -= LIMIT;
+            if (format_width < A4_WIDTH && format_height < A4_HEIGHT) format = 0;
+            else if (format_width < A3_WIDTH && format_height < A3_HEIGHT) format = 1;
+            else if (format_width < A2_WIDTH && format_height < A2_HEIGHT) format = 2;
+            else if (format_width < A1_WIDTH && format_height < A1_HEIGHT) format = 3;
+            else if (format_width < A0_WIDTH && format_height < A0_HEIGHT) format = 4;
+            else format = 5;
 
-            const page = await doc.getPage(render_page_ind + 1);
-
-            // get page size
-            const page_rect = page.view;
-            let format_width = (page_rect[2] - page_rect[0]) * 0.3527722110322778;
-            let format_height = (page_rect[3] - page_rect[1]) * 0.3527722110322778;
-            if (format_width > format_height) {
-                const tmp = format_height;
-                format_height = format_width;
-                format_width = tmp;
-            }
-
-            if (format_width > 910) {
-                page_black_list[file_ind].push(render_page_ind);
-
-                page._destroy();
-                doc._transport.pageCache.clear();
-                doc._transport.pagePromises.clear();
-                start(doc, worker, resolve);
-            }
-            else {
-                // transform page to image
-                const viewport = page.getViewport({scale: 0.5});
-                const image_width = Math.floor(viewport.width);
-                const image_height = Math.floor(viewport.height);
-                const ctx = new OffscreenCanvas(image_width, image_height).getContext("2d");
-                const render = page.render({canvasContext: ctx, viewport: viewport});
-                // save image if need it
-                // canvas.toBlob(function (blob) {
-                //     const link = document.createElement("a");
-                //     link.download = "page-" + page_ind + ".bmp";
-                //     link.href = URL.createObjectURL(blob);
-                //     link.click();
-                // }, "image/bmp");
-
-                // get page format from size
-                let format;
-                format_width -= LIMIT;
-                format_height -= LIMIT;
-                if (format_width < A4_WIDTH && format_height < A4_HEIGHT) format = 0;
-                else if (format_width < A3_WIDTH && format_height < A3_HEIGHT) format = 1;
-                else if (format_width < A2_WIDTH && format_height < A2_HEIGHT) format = 2;
-                else if (format_width < A1_WIDTH && format_height < A1_HEIGHT) format = 3;
-                else if (format_width < A0_WIDTH && format_height < A0_HEIGHT) format = 4;
-                else format = 5;
-
-                await render.renderTask.promise;
-                const pixels_data = ctx.getImageData(0, 0, image_width, image_height).data;
-                worker.onmessage = async function(event) {
-                    const color = event.data;
-                    if (format < 2) { // A4 and A3
-                        if (color === 0) {
-                            page_types[format][0]++;
-                            page_downloads[format][0][file_ind].push(render_page_ind);
-                        }
-                        else if (color < 50) {
-                            page_types[format][1]++;
-                            page_downloads[format][1][file_ind].push(render_page_ind);
-                        }
-                        else {
-                            page_types[format][2]++;
-                            page_downloads[format][1][file_ind].push(render_page_ind);
-                        }
+            await render;
+            const pixels_data = ctx.getImageData(0, 0, image_width, image_height).data;
+            worker.onmessage = async function(event) {
+                const color = event.data;
+                if (format < 2) { // A4 and A3
+                    if (color === 0) {
+                        page_types[format][0]++;
+                        page_downloads[format][0][file_ind].push(render_page_ind);
                     }
-                    else if (format < 5) {  // A2 and A1 and A0
-                        if (color === 0) {
-                            page_types[format][0]++;
-                            page_downloads[format][0][file_ind].push(render_page_ind);
-                        }
-                        else if (color < 15) {
-                            page_types[format][1]++;
-                            page_downloads[format][1][file_ind].push(render_page_ind);
-                        }
-                        else if (color < 50) {
-                            page_types[format][2]++;
-                            page_downloads[format][1][file_ind].push(render_page_ind);
-                        }
-                        else page_black_list[file_ind].push(render_page_ind);
+                    else if (color < 50) {
+                        page_types[format][1]++;
+                        page_downloads[format][1][file_ind].push(render_page_ind);
                     }
-                    else {  // unformat
-                        if (color === 0) {
-                            page_types[format][0] += (format_height + LIMIT) / 1000;
-                            page_downloads[format][0][file_ind].push(render_page_ind);
-                        }
-                        else if (color < 15) {
-                            page_types[format][1] += (format_height + LIMIT) / 1000;
-                            page_downloads[format][1][file_ind].push(render_page_ind);
-                        }
-                        else if (color < 50) {
-                            page_types[format][2] += (format_height + LIMIT) / 1000;
-                            page_downloads[format][1][file_ind].push(render_page_ind);
-                        }
-                        else page_black_list[file_ind].push(render_page_ind);
+                    else {
+                        page_types[format][2]++;
+                        page_downloads[format][1][file_ind].push(render_page_ind);
                     }
-                    // setting progress at progress bar
-                    const cur_percent = Math.min(Math.round(page_ind / pages_count * 100), 100) + '%';
-                    PROGRESS_BAR.innerText = cur_percent;
-                    PROGRESS_BAR.style.width = cur_percent;
-
-                    page._destroy();
-                    doc._transport.pageCache.clear();
-                    doc._transport.pagePromises.clear();
-                    start(doc, worker, resolve);
                 }
-                worker.postMessage({image_width, image_height, pixels_data}, [pixels_data.buffer]);
+                else if (format < 5) {  // A2 and A1 and A0
+                    if (color === 0) {
+                        page_types[format][0]++;
+                        page_downloads[format][0][file_ind].push(render_page_ind);
+                    }
+                    else if (color < 15) {
+                        page_types[format][1]++;
+                        page_downloads[format][1][file_ind].push(render_page_ind);
+                    }
+                    else if (color < 50) {
+                        page_types[format][2]++;
+                        page_downloads[format][1][file_ind].push(render_page_ind);
+                    }
+                    else page_black_list[file_ind].push(render_page_ind);
+                }
+                else {  // unformat
+                    if (color === 0) {
+                        page_types[format][0] += (format_height + LIMIT) / 1000;
+                        page_downloads[format][0][file_ind].push(render_page_ind);
+                    }
+                    else if (color < 15) {
+                        page_types[format][1] += (format_height + LIMIT) / 1000;
+                        page_downloads[format][1][file_ind].push(render_page_ind);
+                    }
+                    else if (color < 50) {
+                        page_types[format][2] += (format_height + LIMIT) / 1000;
+                        page_downloads[format][1][file_ind].push(render_page_ind);
+                    }
+                    else page_black_list[file_ind].push(render_page_ind);
+                }
+                // setting progress at progress bar
+                const cur_percent = Math.min(Math.round((1 - (pages_count[file_ind] + 1) / doc.numPages) * 100), 100) + '%';
+                PROGRESS_BAR.innerText = cur_percent;
+                PROGRESS_BAR.style.width = cur_percent;
+                page.myCleanup();
+                start(doc, worker, resolve, file_ind);
             }
+            worker.postMessage({image_width, image_height, pixels_data}, [pixels_data.buffer]);
         }
     }
+    
 
-
-    for (let i = 0; i < pdf_files_ind.length; i++) {
-        await parsePdf(await files[pdf_files_ind[i]].arrayBuffer(), pdf_files_ind[i]);
-    }
-    let new_files = new Array(files.length);
-    {
-        let finish_count = 0
-        while (finish_count !== docx_count) {
-            const data = await Promise.race(docx_promises);
-            docx_promises[data.file_ind] = new Promise(function() {});
-            if (data.response.ok) {
-                new_files[data.file_ind] = await data.response.blob();
-                new_files[data.file_ind].name = files[data.file_ind].name;
-                await parsePdf(await new_files[data.file_ind].arrayBuffer(), data.file_ind);
-                finish_count++
+    const converted_files = new Array(files.length);
+    const thead_promises = new Array(SELECTED_CPU_CORES);
+    for (let thread_ind = 0; thread_ind < SELECTED_CPU_CORES; thread_ind++) {
+        thead_promises[thread_ind] = new Promise(async function(main_resolve) {
+            for (let i = 0; i < pdf_files_ind.length; i++) {
+                if (pages_count[pdf_files_ind[i]] === undefined) {
+                    await new Promise(function(start_resolve) {
+                        pages_count[pdf_files_ind[i]] = new Promise(async function(count_resolve) {
+                            const doc = await getDocument({ data: await files[pdf_files_ind[i]].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise;
+                            pages_count[pdf_files_ind[i]] = doc.numPages - 1;
+                            count_resolve();
+                            start(doc, my_workers[thread_ind], start_resolve, pdf_files_ind[i]);
+                        });
+                    });
+                }
+                else if (typeof pages_count[pdf_files_ind[i]] === "number") {
+                    if (pages_count[pdf_files_ind[i]] >= 0) {
+                        await getDocument({ data: await files[pdf_files_ind[i]].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise.then(async function(doc) {
+                            await new Promise(function(start_resolve) {
+                                start(doc, my_workers[thread_ind], start_resolve, pdf_files_ind[i]);
+                            });
+                        });
+                    }
+                }
+                else {
+                    const skiped_ind = skiped[thread_ind].length;
+                    skiped[thread_ind].push(pages_count[pdf_files_ind[i]].then(function() { return skiped_ind }));
+                }
             }
-            else {
-                console.log("bruh");
+            let deleted = 0;
+            while (skiped[thread_ind].length) {
+                const i = await Promise.race(skiped[thread_ind]);
+                if (i.response) {
+                    if (pages_count[i.file_ind] === undefined) {
+                        skiped[thread_ind].splice(i.promis_ind - deleted++, 1);
+                        await new Promise(function(start_resolve) {
+                            pages_count[i.file_ind] = new Promise(async function(count_resolve) {
+                                converted_files[i.file_ind] = await i.response.blob();
+                                const doc = await getDocument({ data: await converted_files[i.file_ind].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise;
+                                pages_count[i.file_ind] = doc.numPages - 1;
+                                count_resolve();
+                                start(doc, my_workers[thread_ind], start_resolve, i.file_ind);
+                            });
+                        });
+                    }
+                    else if (typeof pages_count[i.file_ind] === "number") {
+                        skiped[thread_ind].splice(i.promis_ind - deleted++, 1);
+                        if (pages_count[i.file_ind] >= 0) {
+                            await getDocument({ data: await converted_files[i.file_ind].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise.then(async function(doc) {
+                                await new Promise(function(start_resolve) {
+                                    start(doc, my_workers[thread_ind], start_resolve, i.file_ind);
+                                });
+                            });
+                        }
+                    }
+                    else {
+                        const promis_ind = i.promis_ind;
+                        const file_ind = i.file_ind;
+                        skiped[thread_ind][i.promis_ind - deleted] = pages_count[i.file_ind].then(function() { return {promis_ind, file_ind} });
+                    }
+                }
+                else if (i.promis_ind !== undefined) {
+                    skiped[thread_ind].splice(i.promis_ind - deleted++, 1);
+                    if (pages_count[i.file_ind] >= 0) {
+                        await getDocument({ data: await converted_files[i.file_ind].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise.then(async function(doc) {
+                            await new Promise(function(start_resolve) {
+                                start(doc, my_workers[thread_ind], start_resolve, i.file_ind);
+                            });
+                        });
+                    }
+                }
+                else {
+                    skiped[thread_ind].splice(i - deleted++, 1);
+                    if (pages_count[pdf_files_ind[i]] >= 0) {
+                        await getDocument({ data: await files[pdf_files_ind[i]].arrayBuffer(), worker: pdfjs_workers[thread_ind], enableHWA: true }).promise.then(async function(doc) {
+                            await new Promise(function(start_resolve) {
+                                start(doc, my_workers[thread_ind], start_resolve, pdf_files_ind[i]);
+                            });
+                        });
+                    }
+                }
             }
-        }
+            main_resolve();
+        });
     }
+    await Promise.all(thead_promises);
 
 
     // clear loading
@@ -602,8 +573,7 @@ async function fileHandler(files) {
                         for (let j = 0; j < 6; j++) {
                             const CUR_PAGE_NUMS = document.createElement('td');
                             if (page_downloads[j][i][file_ind].length) {
-                                let compareFn = (a, b) => a - b;
-                                page_downloads[j][i][file_ind].sort(compareFn);
+                                page_downloads[j][i][file_ind].sort(function(a, b) { return a - b });
                                 CUR_PAGE_NUMS.innerText = page_downloads[j][i][file_ind][0] + 1;
                                 for (let page = 1; page < page_downloads[j][i][file_ind].length; page++) CUR_PAGE_NUMS.innerText += `, ${page_downloads[j][i][file_ind][page] + 1}`;
                             }
@@ -658,8 +628,8 @@ async function fileHandler(files) {
                         const blob = new Blob([await new_pdf.save()]);
                         const A = document.createElement('a');
                         A.href = URL.createObjectURL(blob);
-                        if (i === 0) a.download = 'ЧБ ' + formats[j] + '.pdf';
-                        else a.download = 'ЦВ ' + formats[j] + '.pdf';
+                        if (i === 0) A.download = 'ЧБ ' + formats[j] + '.pdf';
+                        else A.download = 'ЦВ ' + formats[j] + '.pdf';
                         A.click();
                         URL.revokeObjectURL(A.href);
                     });
@@ -712,7 +682,7 @@ async function fileHandler(files) {
             if (cur_num) {
                 let price;
                 if (j < 2) {
-                    const cur_nums = [6, 11, 21, 51, 101, 301, cur_type_pages + 1];
+                    const cur_nums = [6, 11, 21, 51, 101, 301, cur_num + 1];
                     for (let num = 0; num < 7; num++) {
                         if (cur_type_pages < cur_nums[num]){
                             price = PRICES[j][i][num];
@@ -721,7 +691,7 @@ async function fileHandler(files) {
                     }
                 }
                 else if (i === 0) {
-                    const cur_nums = [2, 6, 11, 21, 51, cur_type_pages + 1];
+                    const cur_nums = [2, 6, 11, 21, 51, cur_num + 1];
                     for (let num = 0; num < 6; num++) {
                         if (cur_type_pages < cur_nums[num]){
                             price = PRICES[j][i][num];
@@ -730,7 +700,7 @@ async function fileHandler(files) {
                     }
                 }
                 else {
-                    const cur_nums = [2, 6, 11, 21, 51, 101, cur_type_pages + 1];
+                    const cur_nums = [2, 6, 11, 21, 51, 101, cur_num + 1];
                     for (let num = 0; num < 7; num++) {
                         if (cur_type_pages < cur_nums[num]){
                             price = PRICES[j][i][num];
@@ -866,7 +836,7 @@ async function fileHandler(files) {
         RESULT.appendChild(BLACK_LIST_TABLE);
     }
     errors_set.forEach(function(error) {
-        ERROR1.innerText += ` ${error} `;
+        ERROR.innerText += ` ${error} `;
     });
 
     generate_cpu_scroll();
